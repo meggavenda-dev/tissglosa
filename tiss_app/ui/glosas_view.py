@@ -1,7 +1,7 @@
 
 # -*- coding: utf-8 -*-
 """
-analisedeglosa/ui/glosas_view.py
+tiss_app/ui/glosas_view.py
 Aba 2 — Faturas Glosadas (XLSX), sem gráficos, com filtros e componentes
 de seleção de item e busca AMHPTISS isolados.
 
@@ -16,15 +16,15 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from analisedeglosa.ui.components.uploads import uploads_glosas
-from analisedeglosa.ui.components.item_details import show_item_details
-from analisedeglosa.ui.components.amhp_search import render_amhp_search
-from analisedeglosa.state.ui_state import (
+from tiss_app.ui.components.uploads import uploads_glosas
+from tiss_app.ui.components.item_details import show_item_details
+from tiss_app.ui.components.amhp_search import render_amhp_search
+from tiss_app.state.ui_state import (
     files_signature, clear_glosas_state
 )
-from analisedeglosa.state.cache_wrappers import cached_read_glosas_xlsx
-from analisedeglosa.core.glosas_reader import build_glosas_analytics
-from analisedeglosa.core.utils import apply_currency
+from tiss_app.state.cache_wrappers import cached_read_glosas_xlsx
+from tiss_app.core.glosas_reader import build_glosas_analytics
+from tiss_app.core.utils import apply_currency
 
 
 def render_glosas_tab() -> None:
