@@ -1,7 +1,7 @@
 
 # -*- coding: utf-8 -*-
 """
-analisedeglosa/ui/components/item_details.py
+tiss_app/ui/components/item_details.py
 Bloco “Detalhes do Item” (apenas guias com glosa), isolado, com short‑circuit.
 
 Correções aplicadas:
@@ -14,7 +14,7 @@ import re
 import pandas as pd
 import streamlit as st
 
-from analisedeglosa.core.utils import apply_currency, f_currency
+from tiss_app.core.utils import apply_currency, f_currency
 
 
 def show_item_details(df_view: pd.DataFrame, colmap: dict) -> None:
