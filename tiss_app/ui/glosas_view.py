@@ -1,13 +1,14 @@
 
 # -*- coding: utf-8 -*-
 """
-ui/glosas_view.py
+analisedeglosa/ui/glosas_view.py
 Aba 2 — Faturas Glosadas (XLSX), sem gráficos, com filtros e componentes
 de seleção de item e busca AMHPTISS isolados.
 
-Regras:
-- Botões só mudam estado; processamento vai para wrappers cacheados.
-- Respeita o mesmo fluxo/labels do app original.
+Correções aplicadas:
+- Motivo de glosa sempre limpo (apenas dígitos) em todas as exibições (inclui Top 20).
+- Datas Realizado/Pagamento exibidas sem horário (dd/mm/yyyy) na view.
+- Mantém _pagto_dt/_pagto_ym para série mensal.
 """
 
 from __future__ import annotations
@@ -15,15 +16,15 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from tiss_app.ui.components.uploads import uploads_glosas
-from tiss_app.ui.components.item_details import show_item_details
-from tiss_app.ui.components.amhp_search import render_amhp_search
-from tiss_app.state.ui_state import (
+from analisedeglosa.ui.components.uploads import uploads_glosas
+from analisedeglosa.ui.components.item_details import show_item_details
+from analisedeglosa.ui.components.amhp_search import render_amhp_search
+from analisedeglosa.state.ui_state import (
     files_signature, clear_glosas_state
 )
-from tiss_app.state.cache_wrappers import cached_read_glosas_xlsx
-from tiss_app.core.glosas_reader import build_glosas_analytics
-from tiss_app.core.utils import apply_currency
+from analisedeglosa.state.cache_wrappers import cached_read_glosas_xlsx
+from analisedeglosa.core.glosas_reader import build_glosas_analytics
+from analisedeglosa.core.utils import apply_currency
 
 
 def render_glosas_tab() -> None:
@@ -114,6 +115,23 @@ def render_glosas_tab() -> None:
 
     # Aplicar filtros
     df_view = df_g.copy()
+
+    # ---------- Limpeza global de Motivo/Desc. Motivo (sem vírgula/ponto) ----------
+    mcol = colmap.get("motivo")
+    if mcol and mcol in df_view.columns:
+        df_view[mcol] = df_view[mcol].astype(str).str.replace(r"[^\d]", "", regex=True).str.strip()
+    dcol = colmap.get("desc_motivo")
+    if dcol and dcol in df_view.columns:
+        df_view[dcol] = df_view[dcol].astype(str)
+
+    # ---------- Datas sem horário para exibição ----------
+    for dc in ["data_pagamento", "data_realizado"]:
+        c = colmap.get(dc)
+        if c and c in df_view.columns:
+            # Caso já esteja formatado pela leitura, reaplica de forma idempotente
+            df_view[c] = pd.to_datetime(df_view[c], errors="coerce", dayfirst=True).dt.strftime("%d/%m/%Y")
+
+    # ---------- Normalização AMHPTISS (idempotente) ----------
     amhp_col = colmap.get("amhptiss")
     if amhp_col and amhp_col in df_view.columns:
         df_view[amhp_col] = (
@@ -122,12 +140,13 @@ def render_glosas_tab() -> None:
             .str.replace(r"[^\d]", "", regex=True)
             .str.strip()
         )
+
     if conv_sel != "(todos)" and colmap.get("convenio") and colmap["convenio"] in df_view.columns:
         df_view = df_view[df_view[colmap["convenio"]].astype(str) == conv_sel]
     if has_pagto and mes_sel_label:
         df_view = df_view[df_view["_pagto_mes_br"] == mes_sel_label]
 
-    # Série mensal (Pagamento) — SEM gráficos (sempre soma o Valor Cobrado = Valor Original)
+    # Série mensal (Pagamento) — SEM gráficos
     st.markdown("### 📅 Glosa por **mês de pagamento**")
     has_pagto_view = ("_pagto_dt" in df_view.columns) and df_view["_pagto_dt"].notna().any()
     if has_pagto_view:
@@ -144,8 +163,6 @@ def render_glosas_tab() -> None:
                       )
                       .sort_values("_pagto_ym")
             )
-
-            # Renomear/exibir apenas as 4 colunas solicitadas
             mensal = mensal.rename(columns={
                 "_pagto_mes_br": "Mês de Pagamento",
                 "Valor_Glosado": "Valor Glosado (R$)",
@@ -262,7 +279,6 @@ def render_glosas_tab() -> None:
 
             agg = agg.sort_values(["Valor glosado", "Qtd"], ascending=[False, False]).reset_index(drop=True)
 
-            # Manter as 5 colunas solicitadas
             if "Código" not in agg.columns:
                 agg["Código"] = ""
             else:
@@ -331,8 +347,3 @@ def render_glosas_tab() -> None:
 
     # === BUSCA POR Nº AMHPTISS ===
     render_amhp_search(df_g, df_view, colmap)
-
-    # Export — análise (a planilha de export se mantém na própria view (como no original), e será gerada no app.py)
-    # Para manter responsabilidades separadas, o XLSX dessa aba será montado por app.py,
-    # replicando as mesmas abas/colunas do seu código original (Fase 4).
-
