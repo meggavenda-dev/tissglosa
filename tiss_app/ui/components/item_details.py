@@ -1,13 +1,11 @@
 
 # -*- coding: utf-8 -*-
 """
-ui/components/item_details.py
+analisedeglosa/ui/components/item_details.py
 Bloco “Detalhes do Item” (apenas guias com glosa), isolado, com short‑circuit.
 
-Observação:
-- Este componente espera que a seleção do item (nome/descrição) já esteja em
-  st.session_state["top_itens_editor_selected"] (definido pela view).
-- Mantém a mesma lógica de cálculo/ordenação e export do código original.
+Correções aplicadas:
+- Motivo de glosa exibido SEM vírgula/ponto (apenas dígitos).
 """
 
 from __future__ import annotations
@@ -16,7 +14,7 @@ import re
 import pandas as pd
 import streamlit as st
 
-from tiss_app.core.utils import apply_currency, f_currency
+from analisedeglosa.core.utils import apply_currency, f_currency
 
 
 def show_item_details(df_view: pd.DataFrame, colmap: dict) -> None:
@@ -72,6 +70,16 @@ def show_item_details(df_view: pd.DataFrame, colmap: dict) -> None:
     show_cols = [c for c in possiveis if c and c in df_view.columns]
     df_item = df_view.loc[mask_glosa, show_cols]
 
+    # ---------- Garantir motivo de glosa sem vírgula nos detalhes ----------
+    motivo_col = colmap.get("motivo")
+    if motivo_col and motivo_col in df_item.columns:
+        df_item[motivo_col] = (
+            df_item[motivo_col]
+            .astype(str)
+            .str.replace(r"[^\d]", "", regex=True)
+            .str.strip()
+        )
+
     vc = colmap.get("valor_cobrado")
     vg = colmap.get("valor_glosa")
     vr = colmap.get("valor_recursado")
@@ -126,4 +134,3 @@ def show_item_details(df_view: pd.DataFrame, colmap: dict) -> None:
         file_name=f"guias_com_glosa_item_{re.sub(r'[^A-Za-z0-9_-]+','_', selected_item_name)[:40]}.csv",
         mime="text/csv",
     )
-
