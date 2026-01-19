@@ -140,6 +140,21 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     if col_vr and col_vr in result.columns: ren[col_vr] = "Valor Recursado (R$)"
     result_show = result.rename(columns=ren)
 
+    
+    # LIMPAR colunas indesejadas antes de exibir
+    colunas_para_remover = [
+        colmap.get("tipo_glosa"),
+        colmap.get("guia_prest"),  # se existir no colmap
+        "Guia Prestador",
+        "numeroGuiaPrestador",
+        "Guia_Prestador",
+    ]
+    
+    for c in colunas_para_remover:
+        if c in result_show.columns:
+            result_show = result_show.drop(columns=[c])
+    
+    # Agora definimos apenas as colunas que você quer exibir
     exibir_cols = [
         amhp_col,
         colmap.get("convenio"),
@@ -147,7 +162,6 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         colmap.get("descricao"),
         motivo_col,
         colmap.get("desc_motivo"),
-        colmap.get("tipo_glosa"),
         colmap.get("data_realizado"),
         colmap.get("data_pagamento"),
         colmap.get("cobranca"),
@@ -155,7 +169,10 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         "Valor Glosado (R$)",
         "Valor Recursado (R$)",
     ]
+    
+    # Mantém apenas as que realmente existem
     exibir_cols = [c for c in exibir_cols if c in result_show.columns]
+
 
     st.dataframe(
         apply_currency(result_show[exibir_cols], ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"]),
