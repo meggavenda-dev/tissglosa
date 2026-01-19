@@ -1,13 +1,13 @@
 
 # -*- coding: utf-8 -*-
 """
-core/glosas_reader.py
+analisedeglosa/core/glosas_reader.py
 Leitura e pré-processamento de Faturas Glosadas (.xlsx) e métricas específicas.
 
-Funções copiadas do original (sem alteração de lógica):
-- _pick_col
-- read_glosas_xlsx
-- build_glosas_analytics
+Correções aplicadas:
+- Motivo de glosa sempre como TEXTO limpo (apenas dígitos) → evita "2,012" / "1,702".
+- Datas de Realizado/Pagamento exibidas sem horário (dd/mm/yyyy).
+- Mantém _pagto_dt (datetime) e _pagto_ym (Period) para cálculos mensais.
 """
 
 from __future__ import annotations
@@ -39,8 +39,9 @@ def read_glosas_xlsx(files) -> tuple[pd.DataFrame, dict]:
 
     Correções:
       • "Valor Cobrado" passa a usar "Valor Original" (override)
-      • "Realizado": NÃO combinar com "Horário". Só coluna exatamente "Realizado".
-        Se houver duplicatas, usa a ÚLTIMA.
+      • "Realizado": exibe apenas DATA (dd/mm/yyyy), sem "00:00:00"
+      • "Pagamento": exibe apenas DATA (dd/mm/yyyy), sem "00:00:00"
+      • "Motivo Glosa": sempre TEXTO com dígitos, sem vírgula/ponto
     """
     if not files:
         return pd.DataFrame(), {}
@@ -131,20 +132,37 @@ def read_glosas_xlsx(files) -> tuple[pd.DataFrame, dict]:
         if c and c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # ---------- Datas ----------
-    if colmap.get("data_realizado") and colmap["data_realizado"] in df.columns:
-        df[colmap["data_realizado"]] = pd.to_datetime(
-            df[colmap["data_realizado"]], errors="coerce", dayfirst=True
+    # ---------- Motivo de Glosa (sempre TEXTO limpo, sem vírgula) ----------
+    if colmap.get("motivo") and colmap["motivo"] in df.columns:
+        df[colmap["motivo"]] = (
+            df[colmap["motivo"]]
+            .astype(str)
+            .str.replace(r"[^\d]", "", regex=True)
+            .str.strip()
         )
+    if colmap.get("desc_motivo") and colmap["desc_motivo"] in df.columns:
+        df[colmap["desc_motivo"]] = df[colmap["desc_motivo"]].astype(str)
+
+    # ---------- Datas ----------
+    # Realizado: exibir APENAS DATA
+    if colmap.get("data_realizado") and colmap["data_realizado"] in df.columns:
+        _realizado_dt = pd.to_datetime(df[colmap["data_realizado"]], errors="coerce", dayfirst=True)
+        df[colmap["data_realizado"]] = _realizado_dt.dt.strftime("%d/%m/%Y")
+
+    # Pagamento: manter datetime para métricas (_pagto_dt/_ym) e exibir coluna formatada
     if colmap.get("data_pagamento") and colmap["data_pagamento"] in df.columns:
-        df["_pagto_dt"] = pd.to_datetime(df[colmap["data_pagamento"]], errors="coerce", dayfirst=True)
+        _pagto_dt = pd.to_datetime(df[colmap["data_pagamento"]], errors="coerce", dayfirst=True)
+        df["_pagto_dt"] = _pagto_dt
+        if df["_pagto_dt"].notna().any():
+            df["_pagto_ym"] = df["_pagto_dt"].dt.to_period("M")
+            df["_pagto_mes_br"] = df["_pagto_dt"].dt.strftime("%m/%Y")
+        else:
+            df["_pagto_ym"] = pd.NaT
+            df["_pagto_mes_br"] = ""
+        # coluna exibida na UI
+        df[colmap["data_pagamento"]] = _pagto_dt.dt.strftime("%d/%m/%Y")
     else:
         df["_pagto_dt"] = pd.NaT
-
-    if "_pagto_dt" in df.columns and df["_pagto_dt"].notna().any():
-        df["_pagto_ym"] = df["_pagto_dt"].dt.to_period("M")
-        df["_pagto_mes_br"] = df["_pagto_dt"].dt.strftime("%m/%Y")
-    else:
         df["_pagto_ym"] = pd.NaT
         df["_pagto_mes_br"] = ""
 
@@ -170,13 +188,15 @@ def build_glosas_analytics(df: pd.DataFrame, colmap: dict) -> dict:
     m = df["_is_glosa"].fillna(False)
 
     total_linhas = len(df)
-    periodo_ini = df[cm["data_realizado"]].min() if cm["data_realizado"] in df.columns else None
-    periodo_fim = df[cm["data_realizado"]].max() if cm["data_realizado"] in df.columns else None
-    valor_cobrado = float(df[cm["valor_cobrado"]].fillna(0).sum()) if cm["valor_cobrado"] in df.columns else 0.0
+    # 'data_realizado' está formatada como string dd/mm/yyyy (apenas para exibição),
+    # mas aqui usamos apenas para min/max de apresentação, não para cálculo.
+    periodo_ini = df[cm["data_realizado"]].min() if cm.get("data_realizado") in df.columns else None
+    periodo_fim = df[cm["data_realizado"]].max() if cm.get("data_realizado") in df.columns else None
+    valor_cobrado = float(df[cm["valor_cobrado"]].fillna(0).sum()) if cm.get("valor_cobrado") in df.columns else 0.0
     valor_glosado = float(df.loc[m, "_valor_glosa_abs"].sum())
     taxa_glosa = (valor_glosado / valor_cobrado) if valor_cobrado else 0.0
-    convenios = int(df[cm["convenio"]].nunique()) if cm["convenio"] in df.columns else 0
-    prestadores = int(df[cm["prestador"]].nunique()) if cm["prestador"] in df.columns else 0
+    convenios = int(df[cm["convenio"]].nunique()) if cm.get("convenio") in df.columns else 0
+    prestadores = int(df[cm["prestador"]].nunique()) if cm.get("prestador") in df.columns else 0
 
     base = df.loc[m].copy()
 
@@ -222,4 +242,3 @@ def build_glosas_analytics(df: pd.DataFrame, colmap: dict) -> dict:
         top_itens=top_itens,
         by_convenio=by_convenio
     )
-
