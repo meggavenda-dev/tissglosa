@@ -5,7 +5,7 @@ ui/components/amhp_search.py
 Busca por Nº AMHPTISS desacoplada, com index normalizado e short‑circuit.
 
 Ajustes (Guilherme):
-- Resumo da guia agora inclui: Paciente e Convênio.
+- Resumo da guia agora inclui: Paciente e Convênio, em layout vertical (um abaixo do outro).
 - Tabela (resultados) não exibe mais a coluna de Convênio.
 """
 
@@ -132,7 +132,7 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     total_glosado = float(pd.to_numeric(result[col_vg], errors="coerce").abs().fillna(0).sum()) if col_vg in result else 0.0
     qtd_glosados = int((result["_is_glosa"] == True).sum()) if "_is_glosa" in result.columns else 0
 
-    # ----------------------- Paciente & Convênio no Resumo -----------------------
+    # ----------------------- Paciente & Convênio no Resumo (vertical) -----------------------
     # Heurística para localizar "Paciente/Beneficiário" caso não haja mapeamento dedicado
     pac_col = None
     pac_candidates = [
@@ -158,20 +158,13 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     )
 
     st.markdown("### 📌 Resumo da guia")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.write(f"**Paciente:** {nome_paciente}")
-    with c2:
-        st.write(f"**Convênio:** {convenio_val}")
-    with c3:
-        st.write(f"**Total Cobrado:** {f_currency(total_cobrado)}")
-    with c4:
-        st.write(f"**Total Glosado:** {f_currency(total_glosado)}")
-    c5, c6 = st.columns(2)
-    with c5:
-        st.write(f"**Itens cobrados:** {qtd_cobrados}")
-    with c6:
-        st.write(f"**Itens glosados:** {qtd_glosados}")
+    # Tudo EM LINHA VERTICAL (um abaixo do outro)
+    st.write(f"**Paciente:** {nome_paciente}")
+    st.write(f"**Convênio:** {convenio_val}")
+    st.write(f"**Total Cobrado:** {f_currency(total_cobrado)}")
+    st.write(f"**Total Glosado:** {f_currency(total_glosado)}")
+    st.write(f"**Itens cobrados:** {qtd_cobrados}")
+    st.write(f"**Itens glosados:** {qtd_glosados}")
     st.markdown("---")
 
     # Renomeia colunas de valores para exibição
