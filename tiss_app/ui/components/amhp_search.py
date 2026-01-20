@@ -5,10 +5,12 @@ ui/components/amhp_search.py
 Busca por Nº AMHPTISS desacoplada, com index normalizado e short‑circuit.
 
 Ajustes (Guilherme):
-- Removidos os controles "Ignorar filtros de Convênio/Mês" e "Mostrar todas as colunas".
-- A tabela agora exibe TODAS as colunas disponíveis (inclui Convênio e colunas técnicas).
-- Código do procedimento exibido e sanitizado (sem vírgulas).
+- Tabela da tela "Itens da guia — AMHPTISS" agora exibe SOMENTE:
+  [Código do procedimento, Descrição do procedimento, Data do atendimento,
+   Valor cobrado, Valor glosado, Valor recursado, Código de glosa, Descrição da glosa]
+- Código do procedimento sanitizado (remove vírgulas).
 - Resumo em layout vertical (Paciente, Convênio, Totais e Contagens).
+- Sem "ignorar filtros" e sem "mostrar todas as colunas": respeita sempre df_view.
 """
 
 from __future__ import annotations
@@ -116,18 +118,21 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
             **{motivo_col: result[motivo_col].astype(str).str.replace(r"[^\d]", "", regex=True).str.strip()}
         )
 
-    # Colunas mapeadas
-    col_vc   = colmap.get("valor_cobrado")
-    col_vg   = colmap.get("valor_glosa")
-    col_vr   = colmap.get("valor_recursado")
-    col_desc = colmap.get("descricao")
-    col_proc = colmap.get("procedimento")  # ← Código do procedimento
+    # Mapeamentos de colunas relevantes
+    col_proc  = colmap.get("procedimento")      # Código do procedimento
+    col_desc  = colmap.get("descricao")         # Descrição do procedimento
+    col_data  = colmap.get("data_realizado")    # Data do atendimento (no glosas_reader)
+    col_vc    = colmap.get("valor_cobrado")
+    col_vg    = colmap.get("valor_glosa")
+    col_vr    = colmap.get("valor_recursado")
+    col_mcod  = colmap.get("motivo")            # Código de glosa
+    col_mdesc = colmap.get("desc_motivo")       # Descrição da glosa
 
     # Remover vírgulas do CÓDIGO do procedimento (se existir)
     if col_proc and col_proc in result.columns:
         result[col_proc] = result[col_proc].astype(str).str.replace(",", "", regex=False).str.strip()
 
-    # KPIs do resumo
+    # KPIs do resumo (mantidos)
     qtd_cobrados = len(result)
     total_cobrado = float(pd.to_numeric(result[col_vc], errors="coerce").fillna(0).sum()) if col_vc in result else 0.0
     total_glosado = float(pd.to_numeric(result[col_vg], errors="coerce").abs().fillna(0).sum()) if col_vg in result else 0.0
@@ -168,8 +173,8 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     st.write(f"**Itens glosados:** {qtd_glosados}")
     st.markdown("---")
 
-    # ---------- Exibição: TODAS as colunas ----------
-    # Renomeia colunas de valores para exibição (mantendo todas as demais intactas)
+    # ---------- Exibição: APENAS as colunas solicitadas ----------
+    # Renomeia as colunas de valores para exibição
     result_show = result.copy()
     ren = {}
     if col_vc and col_vc in result_show.columns: ren[col_vc] = "Valor Cobrado (R$)"
@@ -178,18 +183,36 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     if ren:
         result_show = result_show.rename(columns=ren)
 
-    # Formatar como moeda apenas as colunas renomeadas
-    money_cols = [c for c in ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"] if c in result_show.columns]
+    # Seleção e ordem final das colunas
+    # Obs.: se alguma coluna não existir no resultado, é simplesmente desconsiderada.
+    exibir_cols = [
+        col_proc,                 # Código do procedimento
+        col_desc,                 # Descrição do procedimento
+        col_data,                 # Data do atendimento (Realizado)
+        "Valor Cobrado (R$)",     # Valor cobrado
+        "Valor Glosado (R$)",     # Valor glosado
+        "Valor Recursado (R$)",   # Valor recursado
+        col_mcod,                 # Código de glosa
+        col_mdesc,                # Descrição da glosa
+    ]
+    exibir_cols = [c for c in exibir_cols if c and c in result_show.columns]
+
+    # Formatar apenas as colunas monetárias renomeadas
+    money_cols = [c for c in ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"] if c in exibir_cols]
+
+    if not exibir_cols:
+        st.warning("Nenhuma das colunas solicitadas foi encontrada no resultado. Verifique o mapeamento das colunas.")
+        return
 
     st.dataframe(
-        apply_currency(result_show, money_cols),
+        apply_currency(result_show[exibir_cols], money_cols),
         use_container_width=True,
         height=420
     )
 
     st.download_button(
-        "⬇️ Baixar resultado (CSV) — todas as colunas",
-        result_show.to_csv(index=False).encode("utf-8"),
+        "⬇️ Baixar resultado (CSV)",
+        result_show[exibir_cols].to_csv(index=False).encode("utf-8"),
         file_name=f"itens_AMHPTISS_{numero_alvo}.csv",
         mime="text/csv"
     )
