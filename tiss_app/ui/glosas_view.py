@@ -9,7 +9,8 @@ Correções aplicadas:
 - Motivo de glosa sempre limpo (apenas dígitos) em todas as exibições (inclui Top 20).
 - Datas Realizado/Pagamento exibidas sem horário (dd/mm/yyyy) na view.
 - Mantém _pagto_dt/_pagto_ym para série mensal.
-- [NOVO] Coluna "% Glosa" (Glosa/Cobrado) na tabela "Glosa por mês de pagamento".
+- Coluna "% Glosa" (Glosa/Cobrado) na tabela "Glosa por mês de pagamento".
+- [ATUAL] Oculto o bloco "🔧 Diagnóstico (debug rápido)".
 """
 
 from __future__ import annotations
@@ -75,19 +76,7 @@ def render_glosas_tab() -> None:
     df_g   = st.session_state.glosas_data
     colmap = st.session_state.glosas_colmap
 
-    # Diagnóstico
-    with st.expander("🔧 Diagnóstico (debug rápido)", expanded=False):
-        st.write("**Colunas do DataFrame:**", list(df_g.columns))
-        st.write("**Mapeamento detectado (colmap):**")
-        st.json({k: v for k, v in colmap.items() if v})
-        st.write("**Amostra (5 linhas):**")
-        st.dataframe(df_g.head(5), use_container_width=True)
-        flags = {
-            "_pagto_dt": "_pagto_dt" in df_g.columns,
-            "_pagto_ym": "_pagto_ym" in df_g.columns,
-            "_pagto_mes_br": "_pagto_mes_br" in df_g.columns,
-        }
-        st.write("**Flags de Pagamento criadas?**", flags)
+    # (Bloco de diagnóstico REMOVIDO)
 
     # Filtros
     has_pagto = ("_pagto_dt" in df_g.columns) and df_g["_pagto_dt"].notna().any()
@@ -129,7 +118,6 @@ def render_glosas_tab() -> None:
     for dc in ["data_pagamento", "data_realizado"]:
         c = colmap.get(dc)
         if c and c in df_view.columns:
-            # Caso já esteja formatado pela leitura, reaplica de forma idempotente
             df_view[c] = pd.to_datetime(df_view[c], errors="coerce", dayfirst=True).dt.strftime("%d/%m/%Y")
 
     # ---------- Normalização AMHPTISS (idempotente) ----------
