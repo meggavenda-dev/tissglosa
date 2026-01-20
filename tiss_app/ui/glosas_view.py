@@ -12,6 +12,7 @@ Correções aplicadas:
 - Coluna "% Glosa" (Glosa/Cobrado) na tabela "Glosa por mês de pagamento".
 - Bloco "🔧 Diagnóstico (debug rápido)" removido.
 - Linha horizontal acima do filtro e label alterado para "Filtrar por convênio:".
+- [NOVO] Filtro "Filtrar por associado:" logo abaixo do filtro de convênio.
 """
 
 from __future__ import annotations
@@ -84,15 +85,25 @@ def render_glosas_tab() -> None:
     if not has_pagto:
         st.warning("Coluna 'Pagamento' não encontrada ou sem dados válidos. Recursos mensais ficarão limitados.")
 
+    # Opções de Convênio
     conv_opts = ["(todos)"]
     if colmap.get("convenio") and colmap["convenio"] in df_g.columns:
         conv_unique = sorted(df_g[colmap["convenio"]].dropna().astype(str).unique().tolist())
         conv_opts += conv_unique
 
-    # Linha horizontal + label ajustado
+    # Linha horizontal + filtro de Convênio
     st.markdown("---")
     conv_sel = st.selectbox("Filtrar por convênio:", conv_opts, index=0, key="conv_glosas")
 
+    # [NOVO] Filtro por Associado (usa a coluna literal 'Associado' do XLSX)
+    assoc_col = "Associado"
+    assoc_opts = ["(todos)"]
+    if assoc_col in df_g.columns:
+        assoc_unique = sorted(df_g[assoc_col].dropna().astype(str).unique().tolist())
+        assoc_opts += assoc_unique
+    assoc_sel = st.selectbox("Filtrar por associado:", assoc_opts, index=0, key="assoc_glosas")
+
+    # Período por Pagamento
     if has_pagto:
         meses_df = (df_g.loc[df_g["_pagto_ym"].notna(), ["_pagto_ym","_pagto_mes_br"]]
                         .drop_duplicates().sort_values("_pagto_ym"))
@@ -107,10 +118,12 @@ def render_glosas_tab() -> None:
         modo_periodo = "Todos os meses (agrupado)"
         mes_sel_label = None
 
+    # =========================
     # Aplicar filtros
+    # =========================
     df_view = df_g.copy()
 
-    # ---------- Limpeza global de Motivo/Desc. Motivo (sem vírgula/ponto) ----------
+    # Limpeza global de Motivo/Desc. Motivo (sem vírgula/ponto)
     mcol = colmap.get("motivo")
     if mcol and mcol in df_view.columns:
         df_view[mcol] = df_view[mcol].astype(str).str.replace(r"[^\d]", "", regex=True).str.strip()
@@ -118,25 +131,28 @@ def render_glosas_tab() -> None:
     if dcol and dcol in df_view.columns:
         df_view[dcol] = df_view[dcol].astype(str)
 
-    # ---------- Datas sem horário para exibição ----------
+    # Datas sem horário para exibição
     for dc in ["data_pagamento", "data_realizado"]:
         c = colmap.get(dc)
         if c and c in df_view.columns:
-            # Caso já esteja formatado pela leitura, reaplica de forma idempotente
             df_view[c] = pd.to_datetime(df_view[c], errors="coerce", dayfirst=True).dt.strftime("%d/%m/%Y")
 
-    # ---------- Normalização AMHPTISS (idempotente) ----------
+    # AMHPTISS normalizado
     amhp_col = colmap.get("amhptiss")
     if amhp_col and amhp_col in df_view.columns:
         df_view[amhp_col] = (
-            df_view[amhp_col]
-            .astype(str)
-            .str.replace(r"[^\d]", "", regex=True)
-            .str.strip()
+            df_view[amhp_col].astype(str).str.replace(r"[^\d]", "", regex=True).str.strip()
         )
 
+    # Filtro por Convênio
     if conv_sel != "(todos)" and colmap.get("convenio") and colmap["convenio"] in df_view.columns:
         df_view = df_view[df_view[colmap["convenio"]].astype(str) == conv_sel]
+
+    # [NOVO] Filtro por Associado
+    if assoc_sel != "(todos)" and assoc_col in df_view.columns:
+        df_view = df_view[df_view[assoc_col].astype(str) == assoc_sel]
+
+    # Filtro por mês de pagamento
     if has_pagto and mes_sel_label:
         df_view = df_view[df_view["_pagto_mes_br"] == mes_sel_label]
 
