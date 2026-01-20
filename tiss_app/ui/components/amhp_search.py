@@ -5,12 +5,13 @@ ui/components/amhp_search.py
 Busca por Nº AMHPTISS desacoplada, com index normalizado e short‑circuit.
 
 Ajustes (Guilherme):
-- Tabela da tela "Itens da guia — AMHPTISS" agora exibe SOMENTE:
+- Botões "Buscar" e "Fechar resultados" logo abaixo do campo de pesquisa.
+- Sem "ignorar filtros" e sem "mostrar todas as colunas": usa SEMPRE df_view (respeita os filtros da aba).
+- Resumo vertical (Paciente, Convênio, Totais e Contagens).
+- Código do procedimento sanitizado (remove vírgulas).
+- Planilha apresenta SOMENTE:
   [Código do procedimento, Descrição do procedimento, Data do atendimento,
    Valor cobrado, Valor glosado, Valor recursado, Código de glosa, Descrição da glosa]
-- Código do procedimento sanitizado (remove vírgulas).
-- Resumo em layout vertical (Paciente, Convênio, Totais e Contagens).
-- Sem "ignorar filtros" e sem "mostrar todas as colunas": respeita sempre df_view.
 """
 
 from __future__ import annotations
@@ -39,15 +40,15 @@ def _normalize_and_index(df: pd.DataFrame, col: str):
     return df2, index
 
 
-def _digits(s):
+def _digits(s: str) -> str:
     return re.sub(r"\D+", "", str(s or ""))
 
 
 def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) -> None:
     """
-    Renderiza o painel de busca por Nº AMHPTISS, respeitando filtros da VIEW (df_view).
-    - df_g: dataset completo processado
-    - df_view: dataset com filtros aplicados (Convênio / mês), se houver
+    Renderiza o painel de busca por Nº AMHPTISS (respeitando df_view).
+    - df_g: dataset completo processado (usado só para index do AMHPTISS)
+    - df_view: dataset com filtros aplicados (Convênio / Mês etc.)
     - colmap: mapeamento de colunas detectado
     """
     amhp_col = colmap.get("amhptiss")
@@ -56,24 +57,32 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         return
 
     # Index do AMHPTISS (normalizado) no dataset completo (para lookup rápido)
-    df_g_idx, amhp_index = _normalize_and_index(df_g, amhp_col)
+    _, amhp_index = _normalize_and_index(df_g, amhp_col)
 
     st.session_state.setdefault("amhp_query", "")
     st.session_state.setdefault("amhp_result", None)
 
+    # ----------------------------------------------------------------------
+    # Barra de pesquisa + botões (botões logo ABAIXO do campo)
+    # ----------------------------------------------------------------------
     st.markdown("## 🔎 Buscar por **Nº AMHPTISS**")
     st.markdown("---")
 
-    col1, col2 = st.columns([0.70, 0.30])
+    col1, col2 = st.columns([0.70, 0.30], vertical_alignment="top")
     with col1:
         numero_input = st.text_input(
             "Informe o Nº AMHPTISS",
             value=st.session_state.amhp_query,
             placeholder="Ex.: 62977972"
         )
+        cbtn1, cbtn2 = st.columns([0.5, 0.5])
+        with cbtn1:
+            clique_buscar = st.button("🔍 Buscar", key="btn_buscar_amhp")
+        with cbtn2:
+            clique_fechar = st.button("❌ Fechar resultados", key="btn_fechar_amhp")
     with col2:
-        clique_buscar = st.button("🔍 Buscar", key="btn_buscar_amhp")
-        clique_fechar = st.button("❌ Fechar resultados", key="btn_fechar_amhp")
+        # Espaço livre para futuras dicas/ajustes
+        pass
 
     if clique_fechar:
         st.session_state.amhp_query = ""
@@ -86,16 +95,15 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
             st.warning("Digite um Nº AMHPTISS válido.")
         else:
             st.session_state.amhp_query = num
-            # SEM "ignorar filtros": usa SEMPRE o df_view (respeita filtros da aba)
+            # Usa SEMPRE o df_view (respeita filtros aplicados na aba)
             base = df_view
             if num in amhp_index:
                 idx = amhp_index[num]
-                # mantém só os índices existentes no DF base (evita KeyError)
+                # mantém apenas índices existentes no DF base (evita KeyError)
                 idx_validos = [i for i in idx if i in base.index]
                 result = base.loc[idx_validos] if idx_validos else pd.DataFrame()
             else:
                 result = pd.DataFrame()
-
             st.session_state.amhp_result = result
 
     result = st.session_state.amhp_result
@@ -110,7 +118,9 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         st.info("Nenhuma linha encontrada para esse AMHPTISS no recorte atual.")
         return
 
-    # ---------- Normalizações idempotentes ----------
+    # ----------------------------------------------------------------------
+    # Normalizações idempotentes e mapeamentos necessários
+    # ----------------------------------------------------------------------
     # Motivo em dígitos (sem separadores)
     motivo_col = colmap.get("motivo")
     if motivo_col and motivo_col in result.columns:
@@ -138,7 +148,7 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     total_glosado = float(pd.to_numeric(result[col_vg], errors="coerce").abs().fillna(0).sum()) if col_vg in result else 0.0
     qtd_glosados = int((result["_is_glosa"] == True).sum()) if "_is_glosa" in result.columns else 0
 
-    # ----------------------- Paciente & Convênio no Resumo (vertical) -----------------------
+    # ----------------------- Resumo vertical (Paciente & Convênio) -----------------------
     # Heurística para localizar "Paciente/Beneficiário" caso não haja mapeamento dedicado
     pac_col = None
     pac_candidates = [
@@ -173,9 +183,12 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     st.write(f"**Itens glosados:** {qtd_glosados}")
     st.markdown("---")
 
-    # ---------- Exibição: APENAS as colunas solicitadas ----------
-    # Renomeia as colunas de valores para exibição
+    # ----------------------------------------------------------------------
+    # Exibição: APENAS as colunas solicitadas e na ordem desejada
+    # ----------------------------------------------------------------------
     result_show = result.copy()
+
+    # Renomeia os valores monetários para headers amigáveis (exibição)
     ren = {}
     if col_vc and col_vc in result_show.columns: ren[col_vc] = "Valor Cobrado (R$)"
     if col_vg and col_vg in result_show.columns: ren[col_vg] = "Valor Glosado (R$)"
@@ -183,8 +196,7 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     if ren:
         result_show = result_show.rename(columns=ren)
 
-    # Seleção e ordem final das colunas
-    # Obs.: se alguma coluna não existir no resultado, é simplesmente desconsiderada.
+    # Ordem final (se a coluna existir, ela será exibida; caso contrário, ignorada)
     exibir_cols = [
         col_proc,                 # Código do procedimento
         col_desc,                 # Descrição do procedimento
@@ -197,12 +209,12 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     ]
     exibir_cols = [c for c in exibir_cols if c and c in result_show.columns]
 
-    # Formatar apenas as colunas monetárias renomeadas
-    money_cols = [c for c in ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"] if c in exibir_cols]
-
     if not exibir_cols:
         st.warning("Nenhuma das colunas solicitadas foi encontrada no resultado. Verifique o mapeamento das colunas.")
         return
+
+    # Formatar apenas as colunas monetárias renomeadas
+    money_cols = [c for c in ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"] if c in exibir_cols]
 
     st.dataframe(
         apply_currency(result_show[exibir_cols], money_cols),
