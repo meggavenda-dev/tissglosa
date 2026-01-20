@@ -10,7 +10,8 @@ Correções aplicadas:
 - Datas Realizado/Pagamento exibidas sem horário (dd/mm/yyyy) na view.
 - Mantém _pagto_dt/_pagto_ym para série mensal.
 - Coluna "% Glosa" (Glosa/Cobrado) na tabela "Glosa por mês de pagamento".
-- [ATUAL] Oculto o bloco "🔧 Diagnóstico (debug rápido)".
+- Bloco "🔧 Diagnóstico (debug rápido)" removido.
+- Linha horizontal acima do filtro e label alterado para "Filtrar por convênio:".
 """
 
 from __future__ import annotations
@@ -76,9 +77,9 @@ def render_glosas_tab() -> None:
     df_g   = st.session_state.glosas_data
     colmap = st.session_state.glosas_colmap
 
-    # (Bloco de diagnóstico REMOVIDO)
-
+    # =========================
     # Filtros
+    # =========================
     has_pagto = ("_pagto_dt" in df_g.columns) and df_g["_pagto_dt"].notna().any()
     if not has_pagto:
         st.warning("Coluna 'Pagamento' não encontrada ou sem dados válidos. Recursos mensais ficarão limitados.")
@@ -87,7 +88,10 @@ def render_glosas_tab() -> None:
     if colmap.get("convenio") and colmap["convenio"] in df_g.columns:
         conv_unique = sorted(df_g[colmap["convenio"]].dropna().astype(str).unique().tolist())
         conv_opts += conv_unique
-    conv_sel = st.selectbox("Convênio", conv_opts, index=0, key="conv_glosas")
+
+    # Linha horizontal + label ajustado
+    st.markdown("---")
+    conv_sel = st.selectbox("Filtrar por convênio:", conv_opts, index=0, key="conv_glosas")
 
     if has_pagto:
         meses_df = (df_g.loc[df_g["_pagto_ym"].notna(), ["_pagto_ym","_pagto_mes_br"]]
@@ -118,6 +122,7 @@ def render_glosas_tab() -> None:
     for dc in ["data_pagamento", "data_realizado"]:
         c = colmap.get(dc)
         if c and c in df_view.columns:
+            # Caso já esteja formatado pela leitura, reaplica de forma idempotente
             df_view[c] = pd.to_datetime(df_view[c], errors="coerce", dayfirst=True).dt.strftime("%d/%m/%Y")
 
     # ---------- Normalização AMHPTISS (idempotente) ----------
@@ -135,7 +140,9 @@ def render_glosas_tab() -> None:
     if has_pagto and mes_sel_label:
         df_view = df_view[df_view["_pagto_mes_br"] == mes_sel_label]
 
+    # =========================
     # Série mensal (Pagamento) — SEM gráficos
+    # =========================
     st.markdown("### 📅 Glosa por **mês de pagamento**")
     has_pagto_view = ("_pagto_dt" in df_view.columns) and df_view["_pagto_dt"].notna().any()
     if has_pagto_view:
@@ -186,7 +193,9 @@ def render_glosas_tab() -> None:
     else:
         st.info("Sem 'Pagamento' válido para montar série mensal.")
 
+    # =========================
     # Analytics globais (respeita df_view)
+    # =========================
     analytics = build_glosas_analytics(df_view, colmap)
 
     st.markdown("### 🏥 Convênios com maior valor glosado")
@@ -255,7 +264,9 @@ def render_glosas_tab() -> None:
                 mot_view_fmt = apply_currency(mot_view[cols_show], ["Valor Glosado (R$)"])
                 st.dataframe(mot_view_fmt, use_container_width=True, height=260)
 
-    # ---------- Itens/descrições com maior valor glosado (Detalhes só com glosa) ----------
+    # =========================
+    # Itens/descrições com maior valor glosado (Detalhes só com glosa)
+    # =========================
     st.markdown("### 🧩 Itens/descrições com maior valor glosado")
     desc_col = colmap.get("descricao")
     proc_col = colmap.get("procedimento")
