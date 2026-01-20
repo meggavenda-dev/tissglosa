@@ -9,6 +9,7 @@ Correções aplicadas:
 - Motivo de glosa sempre limpo (apenas dígitos) em todas as exibições (inclui Top 20).
 - Datas Realizado/Pagamento exibidas sem horário (dd/mm/yyyy) na view.
 - Mantém _pagto_dt/_pagto_ym para série mensal.
+- [NOVO] Coluna "% Glosa" (Glosa/Cobrado) na tabela "Glosa por mês de pagamento".
 """
 
 from __future__ import annotations
@@ -159,19 +160,40 @@ def render_glosas_tab() -> None:
                       .agg(
                           Valor_Glosado=("_valor_glosa_abs", "sum"),
                           Valor_Cobrado=(colmap["valor_cobrado"], "sum"),
-                          Valor_Recursado=(colmap["valor_recursado"], "sum") if colmap.get("valor_recursado") in base_m.columns else ("_valor_glosa_abs", "size")
+                          Valor_Recursado=(colmap["valor_recursado"], "sum")
+                            if (colmap.get("valor_recursado") in base_m.columns) else ("_valor_glosa_abs", "size")
                       )
                       .sort_values("_pagto_ym")
             )
+
+            # Rótulos amigáveis
             mensal = mensal.rename(columns={
                 "_pagto_mes_br": "Mês de Pagamento",
                 "Valor_Glosado": "Valor Glosado (R$)",
                 "Valor_Cobrado": "Valor Cobrado (R$)",
                 "Valor_Recursado": "Valor Recursado (R$)",
             })
-            cols_final = ["Mês de Pagamento", "Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"]
-            mensal = mensal[cols_final]
-            mensal_fmt = apply_currency(mensal, ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"])
+
+            # Percentual de glosa sobre o total cobrado
+            if "Valor Cobrado (R$)" in mensal.columns and "Valor Glosado (R$)" in mensal.columns:
+                mensal["% Glosa"] = mensal.apply(
+                    lambda r: (r["Valor Glosado (R$)"] / r["Valor Cobrado (R$)"] * 100) if r["Valor Cobrado (R$)"] > 0 else 0.0,
+                    axis=1
+                )
+            else:
+                mensal["% Glosa"] = 0.0
+
+            # Seleção/ordem final de colunas
+            cols_final = ["Mês de Pagamento", "Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)", "% Glosa"]
+            mensal = mensal[[c for c in cols_final if c in mensal.columns]]
+
+            # Formatação: moeda para valores e percentual com 2 casas (padrão BR)
+            mensal_fmt = apply_currency(mensal.copy(), ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"])
+            if "% Glosa" in mensal_fmt.columns:
+                mensal_fmt["% Glosa"] = mensal["% Glosa"].map(
+                    lambda v: f"{v:,.2f}%".replace(",", "X").replace(".", ",").replace("X", ".")
+                )
+
             st.dataframe(mensal_fmt, use_container_width=True, height=260)
     else:
         st.info("Sem 'Pagamento' válido para montar série mensal.")
