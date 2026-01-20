@@ -7,17 +7,80 @@ e criação das abas.
 
 A UI não processa dados aqui — somente coleta parâmetros e retorna objetos
 para as views consumirem.
+
+Ajustes:
+- Sidebar sempre colapsada em todo carregamento e a cada rerun (sem desativar o botão "☰").
 """
 
 from __future__ import annotations
 
 from typing import Tuple
 import streamlit as st
+import streamlit.components.v1 as components
+
+
+def _force_sidebar_collapsed() -> None:
+    """
+    Assegura que a sidebar permaneça colapsada em todo rerun.
+    Não remove a sidebar; apenas 'clica' no controle de colapsar se ela estiver aberta.
+    Isso preserva o comportamento do botão ☰ para o usuário.
+    """
+    components.html(
+        """
+        <script>
+        (function() {
+          const tryCollapse = () => {
+            const doc = window.parent.document;
+            // Sidebar e botão do header/collapse
+            const sidebar = doc.querySelector('section[data-testid="stSidebar"]');
+            // Botão de toggle: nas versões recentes do Streamlit, um destes seletores funciona
+            const toggleBtn =
+              doc.querySelector('[data-testid="collapsedControl"]') ||
+              doc.querySelector('button[kind="header"]') ||
+              doc.querySelector('button[title="Menu"]');
+
+            if (!sidebar || !toggleBtn) return false;
+
+            // Heurística para detectar se está expandida:
+            // 1) largura visível
+            // 2) presença/ausência do atributo 'aria-expanded' (varia entre versões)
+            const isVisible = sidebar.offsetWidth > 0 && sidebar.getBoundingClientRect().width > 0;
+            const aria = sidebar.getAttribute('aria-expanded');
+            const expanded = (aria === null) ? isVisible : (aria === "true" || aria === "True");
+
+            if (expanded) {
+              toggleBtn.click(); // recolhe
+            }
+            return true;
+          };
+
+          // Tenta por alguns ciclos para pegar o momento em que o DOM do app terminou de montar
+          let tries = 0;
+          const timer = setInterval(() => {
+            const ok = tryCollapse();
+            if (ok || ++tries > 40) {
+              clearInterval(timer);
+            }
+          }, 75);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def setup_page() -> None:
     """Configura a página e exibe título/caption."""
-    st.set_page_config(page_title="TISS • Conciliação & Analytics", layout="wide")
+    st.set_page_config(
+        page_title="TISS • Conciliação & Analytics",
+        layout="wide",
+        initial_sidebar_state="collapsed"  # Início sempre colapsado no primeiro load
+    )
+
+    # Garante colapso também em todo rerun
+    _force_sidebar_collapsed()
+
     st.title("TISS — Itens por Guia (XML) + Conciliação com Demonstrativo + Analytics")
     st.caption(
         "Lê XML TISS (Consulta / SADT), concilia com Demonstrativo itemizado (AMHP), "
@@ -53,4 +116,3 @@ def sidebar_params() -> dict:
 def build_tabs() -> Tuple:
     """Cria as abas principais e as retorna para que as views façam o render."""
     return st.tabs(["🔗 Conciliação TISS", "📑 Faturas Glosadas (XLSX)"])
-
