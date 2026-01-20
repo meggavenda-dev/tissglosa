@@ -5,10 +5,10 @@ ui/components/amhp_search.py
 Busca por Nº AMHPTISS desacoplada, com index normalizado e short‑circuit.
 
 Ajustes (Guilherme):
-- Resumo da guia inclui: Paciente e Convênio, em layout vertical (um abaixo do outro).
-- Tabela padrão não exibe a coluna de Convênio (fica apenas no resumo).
-- Inclusão do "Código do procedimento" na grade (quando disponível).
-- Toggle "Mostrar todas as colunas" para exibir tudo (inclui Convênio e colunas técnicas).
+- Removidos os controles "Ignorar filtros de Convênio/Mês" e "Mostrar todas as colunas".
+- A tabela agora exibe TODAS as colunas disponíveis (inclui Convênio e colunas técnicas).
+- Código do procedimento exibido e sanitizado (sem vírgulas).
+- Resumo em layout vertical (Paciente, Convênio, Totais e Contagens).
 """
 
 from __future__ import annotations
@@ -43,9 +43,9 @@ def _digits(s):
 
 def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) -> None:
     """
-    Renderiza o painel de busca por Nº AMHPTISS, respeitando filtros se desejado.
+    Renderiza o painel de busca por Nº AMHPTISS, respeitando filtros da VIEW (df_view).
     - df_g: dataset completo processado
-    - df_view: dataset com filtros aplicados (convênio / mês), se houver
+    - df_view: dataset com filtros aplicados (Convênio / mês), se houver
     - colmap: mapeamento de colunas detectado
     """
     amhp_col = colmap.get("amhptiss")
@@ -53,7 +53,7 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         st.info("Não foi possível identificar a coluna de **AMHPTISS** nos arquivos enviados.")
         return
 
-    # Index do AMHPTISS (normalizado) no dataset completo
+    # Index do AMHPTISS (normalizado) no dataset completo (para lookup rápido)
     df_g_idx, amhp_index = _normalize_and_index(df_g, amhp_col)
 
     st.session_state.setdefault("amhp_query", "")
@@ -62,29 +62,16 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     st.markdown("## 🔎 Buscar por **Nº AMHPTISS**")
     st.markdown("---")
 
-    col1, col2 = st.columns([0.65, 0.35])
+    col1, col2 = st.columns([0.70, 0.30])
     with col1:
         numero_input = st.text_input(
             "Informe o Nº AMHPTISS",
             value=st.session_state.amhp_query,
-            placeholder="Ex.: 61916098"
+            placeholder="Ex.: 62977972"
         )
-        cbt1, cbt2 = st.columns(2)
-        with cbt1:
-            clique_buscar = st.button("🔍 Buscar", key="btn_buscar_amhp")
-        with cbt2:
-            clique_fechar = st.button("❌ Fechar resultados", key="btn_fechar_amhp")
     with col2:
-        ignorar_filtros = st.checkbox(
-            "Ignorar filtros de Convênio/Mês",
-            False,
-            help="Busca no dataset completo, ignorando filtros ativos."
-        )
-        mostrar_todas = st.checkbox(
-            "Mostrar todas as colunas",
-            False,
-            help="Exibe todas as colunas disponíveis (inclui Convênio e colunas técnicas)."
-        )
+        clique_buscar = st.button("🔍 Buscar", key="btn_buscar_amhp")
+        clique_fechar = st.button("❌ Fechar resultados", key="btn_fechar_amhp")
 
     if clique_fechar:
         st.session_state.amhp_query = ""
@@ -97,15 +84,13 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
             st.warning("Digite um Nº AMHPTISS válido.")
         else:
             st.session_state.amhp_query = num
-            base = df_g if ignorar_filtros else df_view
+            # SEM "ignorar filtros": usa SEMPRE o df_view (respeita filtros da aba)
+            base = df_view
             if num in amhp_index:
                 idx = amhp_index[num]
                 # mantém só os índices existentes no DF base (evita KeyError)
                 idx_validos = [i for i in idx if i in base.index]
-                if idx_validos:
-                    result = base.loc[idx_validos]
-                else:
-                    result = pd.DataFrame()
+                result = base.loc[idx_validos] if idx_validos else pd.DataFrame()
             else:
                 result = pd.DataFrame()
 
@@ -120,23 +105,29 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     st.subheader(f"🧾 Itens da guia — AMHPTISS **{numero_alvo}**")
 
     if result.empty:
-        msg = "" if ignorar_filtros else " com os filtros atuais"
-        st.info(f"Nenhuma linha encontrada para esse AMHPTISS{msg}.")
+        st.info("Nenhuma linha encontrada para esse AMHPTISS no recorte atual.")
         return
 
-    # Motivo em dígitos (idempotente)
+    # ---------- Normalizações idempotentes ----------
+    # Motivo em dígitos (sem separadores)
     motivo_col = colmap.get("motivo")
     if motivo_col and motivo_col in result.columns:
         result = result.assign(
             **{motivo_col: result[motivo_col].astype(str).str.replace(r"[^\d]", "", regex=True).str.strip()}
         )
 
-    col_vc = colmap.get("valor_cobrado")
-    col_vg = colmap.get("valor_glosa")
-    col_vr = colmap.get("valor_recursado")
+    # Colunas mapeadas
+    col_vc   = colmap.get("valor_cobrado")
+    col_vg   = colmap.get("valor_glosa")
+    col_vr   = colmap.get("valor_recursado")
     col_desc = colmap.get("descricao")
-    col_proc = colmap.get("procedimento")  # ← Código do procedimento (quando disponível)
+    col_proc = colmap.get("procedimento")  # ← Código do procedimento
 
+    # Remover vírgulas do CÓDIGO do procedimento (se existir)
+    if col_proc and col_proc in result.columns:
+        result[col_proc] = result[col_proc].astype(str).str.replace(",", "", regex=False).str.strip()
+
+    # KPIs do resumo
     qtd_cobrados = len(result)
     total_cobrado = float(pd.to_numeric(result[col_vc], errors="coerce").fillna(0).sum()) if col_vc in result else 0.0
     total_glosado = float(pd.to_numeric(result[col_vg], errors="coerce").abs().fillna(0).sum()) if col_vg in result else 0.0
@@ -177,84 +168,28 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
     st.write(f"**Itens glosados:** {qtd_glosados}")
     st.markdown("---")
 
-    # Renomeia colunas de valores para exibição
+    # ---------- Exibição: TODAS as colunas ----------
+    # Renomeia colunas de valores para exibição (mantendo todas as demais intactas)
+    result_show = result.copy()
     ren = {}
-    if col_vc and col_vc in result.columns:
-        ren[col_vc] = "Valor Cobrado (R$)"
-    if col_vg and col_vg in result.columns:
-        ren[col_vg] = "Valor Glosado (R$)"
-    if col_vr and col_vr in result.columns:
-        ren[col_vr] = "Valor Recursado (R$)"
-    result_show = result.rename(columns=ren)
+    if col_vc and col_vc in result_show.columns: ren[col_vc] = "Valor Cobrado (R$)"
+    if col_vg and col_vg in result_show.columns: ren[col_vg] = "Valor Glosado (R$)"
+    if col_vr and col_vr in result_show.columns: ren[col_vr] = "Valor Recursado (R$)"
+    if ren:
+        result_show = result_show.rename(columns=ren)
 
-    # Se o usuário pedir "todas as colunas", não filtramos nada (mostra tudo)
-    if mostrar_todas:
-        # Apenas moeda formatada nas colunas já renomeadas
-        money_cols = [c for c in ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"] if c in result_show.columns]
-        st.dataframe(
-            apply_currency(result_show, money_cols),
-            use_container_width=True,
-            height=420
-        )
-        st.download_button(
-            "⬇️ Baixar resultado (CSV) — todas as colunas",
-            result_show.to_csv(index=False).encode("utf-8"),
-            file_name=f"itens_AMHPTISS_{numero_alvo}_ALL.csv",
-            mime="text/csv"
-        )
-        if not ignorar_filtros:
-            st.caption("Dica: se algum item não aparecer, marque **“Ignorar filtros de Convênio/Mês”**.")
-        return  # short-circuit: já exibimos tudo
-
-    # ---------- Modo padrão (enxuto) ----------
-    # LIMPAR colunas indesejadas antes de exibir (mantém Convênio apenas no RESUMO)
-    colunas_para_remover = [
-        colmap.get("tipo_glosa"),
-        colmap.get("guia_prest"),  # se existir no colmap
-        "Guia Prestador",
-        "numeroGuiaPrestador",
-        "Guia_Prestador",
-    ]
-    if conv_col and conv_col in result_show.columns:
-        colunas_para_remover.append(conv_col)  # remove Convênio da tabela
-
-    for c in colunas_para_remover:
-        if c in result_show.columns:
-            result_show = result_show.drop(columns=[c])
-
-    # Agora definimos as colunas para exibir (inclui CÓDIGO do procedimento, quando existir)
-    exibir_cols = [
-        amhp_col,
-        col_proc,            # ← Código do procedimento
-        col_desc,            # Descrição do item
-        motivo_col,
-        colmap.get("desc_motivo"),
-        colmap.get("data_realizado"),
-        colmap.get("data_pagamento"),
-        colmap.get("cobranca"),
-        "Valor Cobrado (R$)",
-        "Valor Glosado (R$)",
-        "Valor Recursado (R$)",
-    ]
-    # Opcionalmente, incluir "prestador" se for importante na rotina (mantido aqui)
-    exibir_cols.insert(1, colmap.get("prestador"))
-
-    # Mantém apenas as que realmente existem
-    exibir_cols = [c for c in exibir_cols if c in result_show.columns]
+    # Formatar como moeda apenas as colunas renomeadas
+    money_cols = [c for c in ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"] if c in result_show.columns]
 
     st.dataframe(
-        apply_currency(result_show[exibir_cols], ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"]),
+        apply_currency(result_show, money_cols),
         use_container_width=True,
         height=420
     )
 
     st.download_button(
-        "⬇️ Baixar resultado (CSV)",
-        result_show[exibir_cols].to_csv(index=False).encode("utf-8"),
+        "⬇️ Baixar resultado (CSV) — todas as colunas",
+        result_show.to_csv(index=False).encode("utf-8"),
         file_name=f"itens_AMHPTISS_{numero_alvo}.csv",
         mime="text/csv"
     )
-
-    # dica sobre filtros
-    if not ignorar_filtros:
-        st.caption("Dica: se algum item não aparecer, marque **“Ignorar filtros de Convênio/Mês”**.")
