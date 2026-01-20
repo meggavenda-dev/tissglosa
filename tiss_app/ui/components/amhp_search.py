@@ -3,6 +3,10 @@
 """
 ui/components/amhp_search.py
 Busca por Nº AMHPTISS desacoplada, com index normalizado e short‑circuit.
+
+Ajustes (Guilherme):
+- Resumo da guia agora inclui: Paciente e Convênio.
+- Tabela (resultados) não exibe mais a coluna de Convênio.
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ def _normalize_and_index(df: pd.DataFrame, col: str):
     return df2, index
 
 
-def _digits(s): 
+def _digits(s):
     return re.sub(r"\D+", "", str(s or ""))
 
 
@@ -113,6 +117,7 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         st.info(f"Nenhuma linha encontrada para esse AMHPTISS{msg}.")
         return
 
+    # Motivo em dígitos (idempotente)
     motivo_col = colmap.get("motivo")
     if motivo_col and motivo_col in result.columns:
         result = result.assign(
@@ -121,26 +126,65 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
 
     col_vc = colmap.get("valor_cobrado")
     col_vg = colmap.get("valor_glosa")
+
     qtd_cobrados = len(result)
     total_cobrado = float(pd.to_numeric(result[col_vc], errors="coerce").fillna(0).sum()) if col_vc in result else 0.0
     total_glosado = float(pd.to_numeric(result[col_vg], errors="coerce").abs().fillna(0).sum()) if col_vg in result else 0.0
     qtd_glosados = int((result["_is_glosa"] == True).sum()) if "_is_glosa" in result.columns else 0
 
+    # ----------------------- Paciente & Convênio no Resumo -----------------------
+    # Heurística para localizar "Paciente/Beneficiário" caso não haja mapeamento dedicado
+    pac_col = None
+    pac_candidates = [
+        "paciente", "nome do paciente", "nome paciente",
+        "beneficiario", "beneficiário", "nome do beneficiario", "nome do beneficiário"
+    ]
+    for c in result.columns:
+        lc = str(c).strip().lower()
+        if any(tok in lc for tok in pac_candidates):
+            pac_col = c
+            break
+    nome_paciente = (
+        str(result[pac_col].iloc[0]).strip()
+        if pac_col and pac_col in result.columns and not result[pac_col].empty
+        else "—"
+    )
+
+    conv_col = colmap.get("convenio")
+    convenio_val = (
+        str(result[conv_col].iloc[0]).strip()
+        if conv_col and conv_col in result.columns and not result[conv_col].empty
+        else "—"
+    )
+
     st.markdown("### 📌 Resumo da guia")
-    st.write(f"**Total Cobrado:** {f_currency(total_cobrado)}")
-    st.write(f"**Total Glosado:** {f_currency(total_glosado)}")
-    st.write(f"**Itens cobrados:** {qtd_cobrados}")
-    st.write(f"**Itens glosados:** {qtd_glosados}")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.write(f"**Paciente:** {nome_paciente}")
+    with c2:
+        st.write(f"**Convênio:** {convenio_val}")
+    with c3:
+        st.write(f"**Total Cobrado:** {f_currency(total_cobrado)}")
+    with c4:
+        st.write(f"**Total Glosado:** {f_currency(total_glosado)}")
+    c5, c6 = st.columns(2)
+    with c5:
+        st.write(f"**Itens cobrados:** {qtd_cobrados}")
+    with c6:
+        st.write(f"**Itens glosados:** {qtd_glosados}")
     st.markdown("---")
 
+    # Renomeia colunas de valores para exibição
     ren = {}
-    if col_vc and col_vc in result.columns: ren[col_vc] = "Valor Cobrado (R$)"
-    if col_vg and col_vg in result.columns: ren[col_vg] = "Valor Glosado (R$)"
+    if col_vc and col_vc in result.columns:
+        ren[col_vc] = "Valor Cobrado (R$)"
+    if col_vg and col_vg in result.columns:
+        ren[col_vg] = "Valor Glosado (R$)"
     col_vr = colmap.get("valor_recursado")
-    if col_vr and col_vr in result.columns: ren[col_vr] = "Valor Recursado (R$)"
+    if col_vr and col_vr in result.columns:
+        ren[col_vr] = "Valor Recursado (R$)"
     result_show = result.rename(columns=ren)
 
-    
     # LIMPAR colunas indesejadas antes de exibir
     colunas_para_remover = [
         colmap.get("tipo_glosa"),
@@ -149,15 +193,18 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         "numeroGuiaPrestador",
         "Guia_Prestador",
     ]
-    
+
+    # Remover também Convênio da TABELA (mantém apenas no resumo)
+    if conv_col and conv_col in result_show.columns:
+        colunas_para_remover.append(conv_col)
+
     for c in colunas_para_remover:
         if c in result_show.columns:
             result_show = result_show.drop(columns=[c])
-    
-    # Agora definimos apenas as colunas que você quer exibir
+
+    # Agora definimos apenas as colunas que você quer exibir (sem Convênio)
     exibir_cols = [
         amhp_col,
-        colmap.get("convenio"),
         colmap.get("prestador"),
         colmap.get("descricao"),
         motivo_col,
@@ -169,10 +216,8 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         "Valor Glosado (R$)",
         "Valor Recursado (R$)",
     ]
-    
     # Mantém apenas as que realmente existem
     exibir_cols = [c for c in exibir_cols if c in result_show.columns]
-
 
     st.dataframe(
         apply_currency(result_show[exibir_cols], ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"]),
@@ -187,5 +232,6 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         mime="text/csv"
     )
 
+    # dica sobre filtros
     if not ignorar_filtros:
         st.caption("Dica: se algum item não aparecer, marque **“Ignorar filtros de Convênio/Mês”**.")
