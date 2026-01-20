@@ -5,8 +5,10 @@ ui/components/amhp_search.py
 Busca por Nº AMHPTISS desacoplada, com index normalizado e short‑circuit.
 
 Ajustes (Guilherme):
-- Resumo da guia agora inclui: Paciente e Convênio, em layout vertical (um abaixo do outro).
-- Tabela (resultados) não exibe mais a coluna de Convênio.
+- Resumo da guia inclui: Paciente e Convênio, em layout vertical (um abaixo do outro).
+- Tabela padrão não exibe a coluna de Convênio (fica apenas no resumo).
+- Inclusão do "Código do procedimento" na grade (quando disponível).
+- Toggle "Mostrar todas as colunas" para exibir tudo (inclui Convênio e colunas técnicas).
 """
 
 from __future__ import annotations
@@ -78,6 +80,11 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
             False,
             help="Busca no dataset completo, ignorando filtros ativos."
         )
+        mostrar_todas = st.checkbox(
+            "Mostrar todas as colunas",
+            False,
+            help="Exibe todas as colunas disponíveis (inclui Convênio e colunas técnicas)."
+        )
 
     if clique_fechar:
         st.session_state.amhp_query = ""
@@ -126,6 +133,9 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
 
     col_vc = colmap.get("valor_cobrado")
     col_vg = colmap.get("valor_glosa")
+    col_vr = colmap.get("valor_recursado")
+    col_desc = colmap.get("descricao")
+    col_proc = colmap.get("procedimento")  # ← Código do procedimento (quando disponível)
 
     qtd_cobrados = len(result)
     total_cobrado = float(pd.to_numeric(result[col_vc], errors="coerce").fillna(0).sum()) if col_vc in result else 0.0
@@ -173,12 +183,31 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         ren[col_vc] = "Valor Cobrado (R$)"
     if col_vg and col_vg in result.columns:
         ren[col_vg] = "Valor Glosado (R$)"
-    col_vr = colmap.get("valor_recursado")
     if col_vr and col_vr in result.columns:
         ren[col_vr] = "Valor Recursado (R$)"
     result_show = result.rename(columns=ren)
 
-    # LIMPAR colunas indesejadas antes de exibir
+    # Se o usuário pedir "todas as colunas", não filtramos nada (mostra tudo)
+    if mostrar_todas:
+        # Apenas moeda formatada nas colunas já renomeadas
+        money_cols = [c for c in ["Valor Cobrado (R$)", "Valor Glosado (R$)", "Valor Recursado (R$)"] if c in result_show.columns]
+        st.dataframe(
+            apply_currency(result_show, money_cols),
+            use_container_width=True,
+            height=420
+        )
+        st.download_button(
+            "⬇️ Baixar resultado (CSV) — todas as colunas",
+            result_show.to_csv(index=False).encode("utf-8"),
+            file_name=f"itens_AMHPTISS_{numero_alvo}_ALL.csv",
+            mime="text/csv"
+        )
+        if not ignorar_filtros:
+            st.caption("Dica: se algum item não aparecer, marque **“Ignorar filtros de Convênio/Mês”**.")
+        return  # short-circuit: já exibimos tudo
+
+    # ---------- Modo padrão (enxuto) ----------
+    # LIMPAR colunas indesejadas antes de exibir (mantém Convênio apenas no RESUMO)
     colunas_para_remover = [
         colmap.get("tipo_glosa"),
         colmap.get("guia_prest"),  # se existir no colmap
@@ -186,20 +215,18 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         "numeroGuiaPrestador",
         "Guia_Prestador",
     ]
-
-    # Remover também Convênio da TABELA (mantém apenas no resumo)
     if conv_col and conv_col in result_show.columns:
-        colunas_para_remover.append(conv_col)
+        colunas_para_remover.append(conv_col)  # remove Convênio da tabela
 
     for c in colunas_para_remover:
         if c in result_show.columns:
             result_show = result_show.drop(columns=[c])
 
-    # Agora definimos apenas as colunas que você quer exibir (sem Convênio)
+    # Agora definimos as colunas para exibir (inclui CÓDIGO do procedimento, quando existir)
     exibir_cols = [
         amhp_col,
-        colmap.get("prestador"),
-        colmap.get("descricao"),
+        col_proc,            # ← Código do procedimento
+        col_desc,            # Descrição do item
         motivo_col,
         colmap.get("desc_motivo"),
         colmap.get("data_realizado"),
@@ -209,6 +236,9 @@ def render_amhp_search(df_g: pd.DataFrame, df_view: pd.DataFrame, colmap: dict) 
         "Valor Glosado (R$)",
         "Valor Recursado (R$)",
     ]
+    # Opcionalmente, incluir "prestador" se for importante na rotina (mantido aqui)
+    exibir_cols.insert(1, colmap.get("prestador"))
+
     # Mantém apenas as que realmente existem
     exibir_cols = [c for c in exibir_cols if c in result_show.columns]
 
